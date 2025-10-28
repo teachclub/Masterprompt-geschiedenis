@@ -51,6 +51,18 @@ const vertex = new VertexAI({
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers: JSON discipline & fence stripping
 // ──────────────────────────────────────────────────────────────────────────────
+function logModelError(e, tag = "model") {
+  const msg   = e?.message || String(e);
+  const name  = e?.name || "Error";
+  const code  = e?.code ?? e?.status ?? e?.statusCode ?? null;
+  const respS = e?.response?.status ?? e?.response?.statusCode ?? null;
+  let respData = null;
+  try { respData = e?.response?.data ? JSON.stringify(e.response.data).slice(0, 800) : null; } catch(_) {}
+  console.error(`[${tag}] name=${name} code=${code} respStatus=${respS} msg=${msg}`);
+  if (respData) console.error(`[${tag}] response:`, respData);
+  if (e?.stack) console.error(`[${tag}] stack:\n${e.stack}`);
+}
+
 function stripFencesToJson(text) {
   return text.replace(/```(?:json|markdown|md)?\s*|\s*```/g, "").trim();
 }
@@ -186,15 +198,35 @@ app.get("/api/tijdvakken", (_req, res) => {
   });
 });
 
+app.get("/diag", (_req, res) => {
+  res.json({
+    status: "diag",
+    project: process.env.GCP_PROJECT_ID || null,
+    model_region: process.env.GEMINI_VERTEX_LOCATION || null,
+    suggest_model: process.env.GEMINI_MODEL_SUGGEST || null,
+    generate_model: process.env.GEMINI_MODEL_GENERATE || null,
+    has_GOOGLE_APPLICATION_CREDENTIALS: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
+    adc_hint: "Run locally: gcloud auth application-default login",
+    runtime_region: process.env.X_GOOGLE_RUNTIME_REGION || process.env.GOOGLE_CLOUD_REGION || process.env.REGION || process.env.RUNTIME_REGION || "unknown"
+  });
+});
+
 app.post("/api/suggest", async (req, res) => {
   try {
     const { tv, ka, context } = req.body || {};
-    if (!tv && !ka) return res.status(400).json({ error: "Missing tv or ka" });
+    if (!tv && !ka) {
+      return res.status(400).json({ error: "Missing tv or ka", hint: "Provide at least one of tv or ka" });
+    }
     const items = await generateSuggestions({ tv, ka, context });
-    res.json({ items: items.slice(0, 3) });
+    return res.json({ items });
   } catch (e) {
-    console.error("suggest error:", e);
-    res.status(500).json({ error: "Internal error while suggesting" });
+    logModelError(e, "suggest");
+    const msg = e?.message || "";
+    const status = /timeout/i.test(msg) ? 504 : 500;
+    return res.status(status).json({
+      error: "Internal error while suggesting",
+      hint: "Check Vertex credentials (ADC), project/region/model env vars, and server logs"
+    });
   }
 });
 
