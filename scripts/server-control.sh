@@ -55,7 +55,7 @@ start_server() {
   
   # Wacht even en controleer of de server daadwerkelijk draait
   sleep 3
-  if kill -0 $SERVER_PID 2>/dev/null; then
+  if kill -0 $SERVER_PID 2>/dev/null && curl -s "http://localhost:$PORT/health" >/dev/null 2>&1; then
     success "Server gestart (PID: $SERVER_PID) op poort $PORT"
     log "Test met: curl http://localhost:$PORT/health"
   else
