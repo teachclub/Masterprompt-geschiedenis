@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Laad omgevingsvariabelen uit .env bestand
+if [ -f ".env" ]; then
+  export $(grep -v '^#' .env | xargs)
+fi
+
 PORT="${PORT:-8080}"
 SERVER_SCRIPT="server.mjs"
 
@@ -36,16 +41,25 @@ start_server() {
     error "Server script '$SERVER_SCRIPT' niet gevonden"
   fi
   
+  # Controleer of vereiste env vars aanwezig zijn
+  if [ -z "${GCP_PROJECT_ID:-}" ]; then
+    error "GCP_PROJECT_ID ontbreekt. Vul .env bestand in met je GCP project ID"
+  fi
+  
   log "Starten van server op poort $PORT..."
+  log "GCP Project: ${GCP_PROJECT_ID}"
+  log "Vertex regio: ${GEMINI_VERTEX_LOCATION:-europe-west1}"
+  
   node "$SERVER_SCRIPT" &
   SERVER_PID=$!
   
   # Wacht even en controleer of de server daadwerkelijk draait
-  sleep 2
+  sleep 3
   if kill -0 $SERVER_PID 2>/dev/null; then
     success "Server gestart (PID: $SERVER_PID) op poort $PORT"
+    log "Test met: curl http://localhost:$PORT/health"
   else
-    error "Server kon niet worden gestart"
+    error "Server kon niet worden gestart. Controleer de logs hierboven."
   fi
 }
 
