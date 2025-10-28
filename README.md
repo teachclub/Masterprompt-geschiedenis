@@ -1,5 +1,11 @@
 # Masterprompt Geschiedenis — Het Vreemde Verleden
 
+## Voor geschiedenisdocenten
+
+Korte inleiding voor geschiedenisdocenten: deze tool genereert een panklare les met echte bronnen rond presentisme en historisch redeneren. Je krijgt na je keuze een complete opdracht in de stijl van Het Vreemde Verleden, inclusief docenteninstructie (WAT–HOE–WAAROM), leerlingenteksten, bronvragen, tabellen en reflectie. Feedback is welkom via HIER STOPT HET HELAAS
+
+## Hoe het werkt
+
 Deze applicatie genereert in twee stappen een complete geschiedenisles die leerlingen van een presentistisch startpunt naar historisch redeneren brengt. In Stap 1 kies je uit vijf voorstellen met elk een hoofdvraag in duidelijke leerlingentaal die bewust de bril van nu opzet. In Stap 2 bouwt de app een kant-en-klare les: docent- én leerlingversie, acht echte bronnen (voornamelijk primair), analysevragen, antwoordmodel en een selecteerbare oorzakenlijst boven de tabel. Leerlingen kiezen max. drie oorzaken, verzamelen bewijs uit bronnen uit verschillende dimensies (politiek, economisch, sociaal-cultureel, religie/ideologisch, emotie/propaganda, juridisch/fiscaal), vullen de tabel en herpositioneren hun oordeel in een thema-specifiek 2×2-kwadrant. Zo leren ze contextualiseren: begrijpen hoe en waarom mensen toen anders dachten en handelden. De les eindigt met het herformuleren van de hoofdvraag met de bril van toen en een korte discussie waarin begrijpen ≠ goedkeuren centraal staat. Output is schoon Markdown, direct bruikbaar voor Canvas of print.
 
 ## Live Website
