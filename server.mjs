@@ -181,7 +181,8 @@ app.get("/health", (_req, res) => {
     project: GCP_PROJECT_ID || "unknown",
     provider: "Vertex AI",
     model_region: GEMINI_VERTEX_LOCATION,
-    runtime_region: RUNTIME_REGION || "unknown"
+    runtime_region: RUNTIME_REGION || "unknown",
+    uptime_sec: Math.floor(process.uptime())
   });
 });
 
