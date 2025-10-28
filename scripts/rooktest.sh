@@ -28,10 +28,10 @@ node_json_has "$json" "j.model_region && j.runtime_region" "/health: regio-infor
 pass "/health ok"
 
 # 2) /api/suggest -------------------------------------------------------
-log "Check: POST /api/suggest (tv=6)"
+log "Check: POST /api/suggest (tijdvak=6)"
 code=$(curl -sS -o "$TMP_DIR/suggest.json" -w "%{http_code}" \
   -H 'Content-Type: application/json' \
-  -d '{"tv":6}' \
+  -d '{"tijdvak":6}' \
   "$BASE/api/suggest" || true)
 
 if [ "$code" = "403" ]; then
@@ -47,14 +47,14 @@ fi
 
 [ "$code" = "200" ] || fail "/api/suggest statuscode $code (verwacht 200)"
 json="$(cat "$TMP_DIR/suggest.json")"
-node_json_has "$json" "Array.isArray(j.items)" "/api/suggest: items geen array"
-node_json_has "$json" "j.items.length===3" "/api/suggest: verwacht exact 3 items"
-pass "/api/suggest ok (3 items)"
+node_json_has "$json" "Array.isArray(j.suggestions)" "/api/suggest: suggestions geen array"
+node_json_has "$json" "j.suggestions.length===5" "/api/suggest: verwacht exact 5 suggestions"
+pass "/api/suggest ok (5 suggestions)"
 
 # 3) /api/generate ------------------------------------------------------
-log "Check: POST /api/generate (met gekozen kaart uit suggesties)"
-card="$(node -e 'const j=require(process.argv[1]); process.stdout.write(JSON.stringify(j.items[0]))' "$TMP_DIR/suggest.json")"
-payload="$(node -e 'const c=process.argv[1]; process.stdout.write(JSON.stringify({chosen_card: JSON.parse(c), options:{tv:6}}))' "$card")"
+log "Check: POST /api/generate (met gekozen suggestie)"
+suggestion="$(node -e 'const j=require(process.argv[1]); process.stdout.write(JSON.stringify(j.suggestions[0]))' "$TMP_DIR/suggest.json")"
+payload="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(JSON.stringify({keuze: s.title, tijdvak: 6}))' "$suggestion")"
 
 code=$(curl -sS -o "$TMP_DIR/generate.json" -w "%{http_code}" \
   -H 'Content-Type: application/json' \
