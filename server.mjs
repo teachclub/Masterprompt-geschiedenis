@@ -191,6 +191,47 @@ async function generateLesson({ chosen_card, options }) {
 // ──────────────────────────────────────────────────────────────────────────────
 /** Routes */
 // ──────────────────────────────────────────────────────────────────────────────
+/** ====== Dropdown data (tijdvakken, KA's, oorzaken) ====== */
+const TIJDVAKKEN = [
+  { id: "TV5", naam: "Tijdvak 5 – Ontdekkers & Hervormers (1500–1600)" },
+  { id: "TV6", naam: "Tijdvak 6 – Regenten & Vorsten (1600–1700)" },
+  { id: "TV7", naam: "Tijdvak 7 – Pruiken & Revoluties (1700–1800)" }
+];
+
+const KENMERKENDE_ASPECTEN = {
+  TV5: [
+    "Het begin van de Europese overzeese expansie",
+    "Het veranderende mens- en wereldbeeld van de renaissance en het begin van een nieuwe wetenschappelijke belangstelling",
+    "De hernieuwde oriëntatie op het erfgoed van de klassieke Oudheid",
+    "De protestantse reformatie die splitsing van de christelijke kerk in West-Europa tot gevolg had",
+    "Het conflict in de Nederlanden dat resulteerde in de stichting van een Nederlandse staat"
+  ],
+  TV6: [
+    "Het streven van vorsten naar absolute macht",
+    "De bijzondere plaats in staatkundig opzicht en de bloei in economisch en cultureel opzicht van de Nederlandse Republiek",
+    "Wereldwijde handelscontacten, handelskapitalisme en het begin van een wereldeconomie",
+    "De wetenschappelijke revolutie"
+  ],
+  TV7: [
+    "Rationeel optimisme en 'verlicht denken' toegepast op godsdienst, politiek, economie en sociale verhoudingen",
+    "Voortbestaan van het ancien régime met pogingen om het vorstelijk bestuur op eigentijdse verlichte wijze vorm te geven",
+    "Uitbouw van de Europese overheersing, plantagekoloniën en trans-Atlantische slavenhandel; opkomst abolitionisme",
+    "De democratische revoluties in westerse landen en discussies over grondwetten, grondrechten en staatsburgerschap"
+  ]
+};
+
+/** Suggestie-lijst van oorzaken/motieven (keuzelijst voor leerlingen) */
+const OORZAKEN_DEFAULT = [
+  "Economisch motief (handel, winst, arbeidsmarkt)",
+  "Sociaal-cultureel motief (status, traditie, opvoeding)",
+  "Politiek-bestuurlijk motief (macht, orde, wetgeving)",
+  "Emotioneel/propaganda (angst, hoop, beeldvorming)",
+  "Ideologisch/wereldbeeld (religie, overtuiging, wetenschap)",
+  "Extern/intern conflict (oorlog, rivaliteit, opstand)",
+  "Toeval/contingentie (onvoorziene gebeurtenis, individu)"
+];
+
+/** ====== Healthcheck ====== */
 app.get("/health", (_req, res) => {
   res.json({
     status: "ok",
@@ -202,12 +243,38 @@ app.get("/health", (_req, res) => {
   });
 });
 
-/** Inspectie-endpoint voor de masterprompt (handig bij debuggen) */
+/** Inspectie van de masterprompt (markdown) */
 app.get("/api/masterprompt", (_req, res) => {
   if (!MASTERPROMPT_TEXT) {
     return res.status(404).json({ error: "masterprompt not loaded", path: MASTERPROMPT_PATH });
   }
   res.type("text/markdown").send(MASTERPROMPT_TEXT);
+});
+
+/** Dropdown-opties voor frontend */
+app.get("/api/options", (_req, res) => {
+  res.json({
+    tijdvakken: TIJDVAKKEN,
+    kenmerkendeAspecten: KENMERKENDE_ASPECTEN
+  });
+});
+
+/** Keuzelijst met oorzaken/motieven (voor boven de tabel) */
+app.get("/api/causes", (_req, res) => {
+  res.json({ oorzaken: OORZAKEN_DEFAULT });
+});
+
+/** Inleiding (±150 woorden) voor de app + korte instructie */
+app.get("/api/inleiding", (_req, res) => {
+  const tekst =
+`Deze applicatie helpt je om snel een volledige, didactisch sterke geschiedenisles te bouwen in de geest van *Het Vreemde Verleden*. Je start met een **presentistische hoofdvraag in leerlingentaal**—een vraag die bewust "met de bril van nu" kijkt. Vervolgens kies je een **tijdvak** en een **kenmerkend aspect**. De app stelt **bronnen uit meerdere dimensies** (economisch, sociaal-cultureel, politiek, emotioneel/propaganda, ideologisch) voor. Leerlingen gebruiken die bronnen om te **contextualiseren** en leren zo **historisch redeneren**: begrijpen waarom keuzes toen logisch konden zijn—zonder dat "begrijpen" hetzelfde is als "goedkeuren". Dit zet aan tot nieuwsgierigheid en eindigt in een vruchtbare klassendiscussie rond de hoofdvraag.
+
+**Kort gebruiksadvies**
+1) Kies *Tijdvak* en *KA* in de dropdowns.
+2) Formuleer een **presentistische hoofdvraag** in leerlingentaal.
+3) Selecteer of bewerk de **oorzaken-keuzelijst** boven de tabel.
+4) Genereer de les → je krijgt **docent-** en **leerlingversie** met bronnen, vragen en antwoordmodel.`;
+  res.type("text/plain").send(tekst);
 });
 
 /* ──────────────────────────────────────────────────────────────────────────────
