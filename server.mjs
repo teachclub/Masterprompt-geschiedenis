@@ -464,7 +464,7 @@ function ensureJsonArray(x) {
 
 /* ─── POST /api/suggest ─────────────────────────────────────────────────────── */
 app.post("/api/suggest", express.json(), async (req, res) => {
-  const MASTERPROMPT = MASTERPROMPT_TEXT; // beschikbaar voor promptbouw
+  const MASTERPROMPT = MASTERPROMPT_TEXT;
   try {
     const payload = {
       ka: req.body?.ka || null,
@@ -497,7 +497,7 @@ app.post("/api/suggest", express.json(), async (req, res) => {
 
 /* ─── POST /api/generate ────────────────────────────────────────────────────── */
 app.post("/api/generate", express.json(), async (req, res) => {
-  const MASTERPROMPT = MASTERPROMPT_TEXT; // beschikbaar voor promptbouw
+  const MASTERPROMPT = MASTERPROMPT_TEXT;
   try {
     const payload = {
       keuze: req.body?.keuze || req.body?.title || null,
