@@ -64,6 +64,37 @@ show_status() {
   fi
 }
 
+find_servers() {
+  log "Zoeken naar Node.js servers op verschillende poorten..."
+  
+  # Zoek naar Node.js processen
+  local node_procs=$(ps aux | grep -E "node.*server\.mjs|node.*app\.js|node.*index\.js" | grep -v grep || true)
+  if [ -n "$node_procs" ]; then
+    success "Gevonden Node.js processen:"
+    echo "$node_procs" | while read line; do
+      echo "  $line"
+    done
+    echo
+  fi
+  
+  # Zoek op veelgebruikte poorten
+  local common_ports="3000 3001 4000 5000 8000 8080 8081 9000"
+  local found_any=false
+  
+  for port in $common_ports; do
+    local pid=$(lsof -ti :$port 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      local proc_info=$(ps -p $pid -o comm= 2>/dev/null || echo "unknown")
+      success "Poort $port: PID $pid ($proc_info)"
+      found_any=true
+    fi
+  done
+  
+  if [ "$found_any" = false ]; then
+    log "Geen servers gevonden op veelgebruikte poorten ($common_ports)"
+  fi
+}
+
 case "${1:-}" in
   start)
     start_server
@@ -77,14 +108,18 @@ case "${1:-}" in
   status)
     show_status
     ;;
+  find)
+    find_servers
+    ;;
   *)
-    echo "Gebruik: $0 {start|stop|restart|status}"
+    echo "Gebruik: $0 {start|stop|restart|status|find}"
     echo ""
     echo "Commando's:"
     echo "  start   - Start de server"
     echo "  stop    - Stop de server"
     echo "  restart - Herstart de server"
     echo "  status  - Toon server status"
+    echo "  find    - Zoek naar draaiende servers"
     exit 1
     ;;
 esac
