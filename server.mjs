@@ -5,6 +5,9 @@
 // ALLOWED_ORIGIN=https://prompt-to-lesson-ck1.web.app, RUNTIME_REGION=(optional)
 
 import express from "express";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import cors from "cors";
 import { VertexAI } from "@google-cloud/vertexai";
 
@@ -20,6 +23,19 @@ const {
   ALLOWED_ORIGIN = "https://prompt-to-lesson-ck1.web.app",
   RUNTIME_REGION = process.env.K_SERVICE ? process.env.X_GOOGLE_RUNTIME_REGION || process.env.REGION || process.env.GOOGLE_CLOUD_REGION : process.env.RUNTIME_REGION
 } = process.env;
+
+/** Masterprompt inladen */
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const MASTERPROMPT_PATH = path.join(__dirname, "prompts", "masterprompt_v3_3.md");
+
+let MASTERPROMPT_TEXT = "";
+try {
+  MASTERPROMPT_TEXT = fs.readFileSync(MASTERPROMPT_PATH, "utf8");
+  console.log(`Loaded masterprompt (${MASTERPROMPT_TEXT.length} chars) from ${MASTERPROMPT_PATH}`);
+} catch (e) {
+  console.warn("Masterprompt file not found:", MASTERPROMPT_PATH, e?.message || e);
+}
 
 const app = express();
 
@@ -186,6 +202,14 @@ app.get("/health", (_req, res) => {
   });
 });
 
+/** Inspectie-endpoint voor de masterprompt (handig bij debuggen) */
+app.get("/api/masterprompt", (_req, res) => {
+  if (!MASTERPROMPT_TEXT) {
+    return res.status(404).json({ error: "masterprompt not loaded", path: MASTERPROMPT_PATH });
+  }
+  res.type("text/markdown").send(MASTERPROMPT_TEXT);
+});
+
 /* ──────────────────────────────────────────────────────────────────────────────
    MASTERPROMPT – Suggest & Generate endpoints (v3.1)
    Vereist env: GCP_PROJECT_ID, GEMINI_VERTEX_LOCATION,
@@ -324,6 +348,7 @@ function ensureJsonArray(x) {
 
 /* ─── POST /api/suggest ─────────────────────────────────────────────────────── */
 app.post("/api/suggest", express.json(), async (req, res) => {
+  const MASTERPROMPT = MASTERPROMPT_TEXT; // beschikbaar voor promptbouw
   try {
     const payload = {
       ka: req.body?.ka || null,
@@ -356,6 +381,7 @@ app.post("/api/suggest", express.json(), async (req, res) => {
 
 /* ─── POST /api/generate ────────────────────────────────────────────────────── */
 app.post("/api/generate", express.json(), async (req, res) => {
+  const MASTERPROMPT = MASTERPROMPT_TEXT; // beschikbaar voor promptbouw
   try {
     const payload = {
       keuze: req.body?.keuze || req.body?.title || null,
