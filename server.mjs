@@ -193,12 +193,40 @@ async function generateLesson({ chosen_card, options }) {
 // ──────────────────────────────────────────────────────────────────────────────
 /** ====== Dropdown data (tijdvakken, KA's, oorzaken) ====== */
 const TIJDVAKKEN = [
-  { id: "TV5", naam: "Tijdvak 5 – Ontdekkers & Hervormers (1500–1600)" },
-  { id: "TV6", naam: "Tijdvak 6 – Regenten & Vorsten (1600–1700)" },
-  { id: "TV7", naam: "Tijdvak 7 – Pruiken & Revoluties (1700–1800)" }
+  { id: "TV1", naam: "Tijdvak 1 – Jagers en boeren (tot 3000 v.Chr.)" },
+  { id: "TV2", naam: "Tijdvak 2 – Grieken en Romeinen (3000 v.Chr.–500 n.Chr.)" },
+  { id: "TV3", naam: "Tijdvak 3 – Monniken en ridders (500–1000)" },
+  { id: "TV4", naam: "Tijdvak 4 – Steden en staten (1000–1500)" },
+  { id: "TV5", naam: "Tijdvak 5 – Ontdekkers en hervormers (1500–1600)" },
+  { id: "TV6", naam: "Tijdvak 6 – Regenten en vorsten (1600–1700)" },
+  { id: "TV7", naam: "Tijdvak 7 – Pruiken en revoluties (1700–1800)" },
+  { id: "TV8", naam: "Tijdvak 8 – Burgers en stoommachines (1800–1900)" },
+  { id: "TV9", naam: "Tijdvak 9 – Wereldoorlogen (1900–1950)" },
+  { id: "TV10", naam: "Tijdvak 10 – Televisie en computer (1950–nu)" }
 ];
 
 const KENMERKENDE_ASPECTEN = {
+  TV1: [
+    "De overgang van jagen en verzamelen naar landbouw en veeteelt",
+    "Het ontstaan van de eerste nederzettingen"
+  ],
+  TV2: [
+    "Het ontstaan van de eerste beschavingen",
+    "De ontwikkeling van de democratie en republiek",
+    "Het ontstaan en de verspreiding van het christendom",
+    "De opkomst en ondergang van het Romeinse rijk"
+  ],
+  TV3: [
+    "De verspreiding van het christendom en de macht van de kerk",
+    "Het ontstaan van de islam en de islamitische expansie",
+    "De ontwikkeling van het feodalisme"
+  ],
+  TV4: [
+    "De opkomst van steden en burgerij",
+    "De ontwikkeling van handel en verkeer",
+    "Het ontstaan van de standenmaatschappij",
+    "De kruistochten"
+  ],
   TV5: [
     "Het begin van de Europese overzeese expansie",
     "Het veranderende mens- en wereldbeeld van de renaissance en het begin van een nieuwe wetenschappelijke belangstelling",
@@ -217,6 +245,27 @@ const KENMERKENDE_ASPECTEN = {
     "Voortbestaan van het ancien régime met pogingen om het vorstelijk bestuur op eigentijdse verlichte wijze vorm te geven",
     "Uitbouw van de Europese overheersing, plantagekoloniën en trans-Atlantische slavenhandel; opkomst abolitionisme",
     "De democratische revoluties in westerse landen en discussies over grondwetten, grondrechten en staatsburgerschap"
+  ],
+  TV8: [
+    "De industriële revolutie en haar gevolgen voor de samenleving",
+    "De opkomst van liberalisme, nationalisme en socialisme",
+    "De opkomst van de burgerij en het ontstaan van een moderne klassenmaatschappij",
+    "Democratisering en emancipatie van verschillende bevolkingsgroepen",
+    "Imperialisme en kolonialisme"
+  ],
+  TV9: [
+    "De Eerste Wereldoorlog als een breuk in de Europese beschaving",
+    "Het interbellum als een periode van crises",
+    "De opkomst van het fascisme en nazisme",
+    "De Tweede Wereldoorlog en de Holocaust",
+    "Het ontstaan van de Koude Oorlog"
+  ],
+  TV10: [
+    "Dekolonisatie en het ontstaan van de derde wereld",
+    "De Koude Oorlog en de bipolaire wereldorde",
+    "Economische en politieke integratie van Europa",
+    "Sociale en culturele veranderingen in westerse landen",
+    "Het einde van de Koude Oorlog en de gevolgen daarvan voor de wereldorde"
   ]
 };
 
