@@ -28,10 +28,10 @@ node_json_has "$json" "j.model_region && j.runtime_region" "/health: regio-infor
 pass "/health ok"
 
 # 2) /api/suggest -------------------------------------------------------
-log "Check: POST /api/suggest (tijdvak=6)"
+log "Check: POST /api/suggest (ka=test)"
 code=$(curl -sS -o "$TMP_DIR/suggest.json" -w "%{http_code}" \
   -H 'Content-Type: application/json' \
-  -d '{"tijdvak":6}' \
+  -d '{"ka":"Het streven van vorsten naar absolute macht"}' \
   "$BASE/api/suggest" || true)
 
 if [ "$code" = "403" ]; then
@@ -54,7 +54,7 @@ pass "/api/suggest ok (5 suggestions)"
 # 3) /api/generate ------------------------------------------------------
 log "Check: POST /api/generate (met gekozen suggestie)"
 suggestion="$(node -e 'const j=require(process.argv[1]); process.stdout.write(JSON.stringify(j.suggestions[0]))' "$TMP_DIR/suggest.json")"
-payload="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(JSON.stringify({keuze: s.title, tijdvak: 6}))' "$suggestion")"
+payload="$(node -e 'const s=JSON.parse(process.argv[1]); process.stdout.write(JSON.stringify({keuze: s.title, ka: "Het streven van vorsten naar absolute macht"}))' "$suggestion")"
 
 code=$(curl -sS -o "$TMP_DIR/generate.json" -w "%{http_code}" \
   -H 'Content-Type: application/json' \
