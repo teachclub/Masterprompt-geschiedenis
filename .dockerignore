@@ -1,11 +1,11 @@
 node_modules
-npm-debug.log
-.DS_Store
-.git
-.gitignore
-.env
-node_modules
 .git
 .env
 *.log
 dist
+.DS_Store
+npm-debug.log
+.gitignore
+suggest_result.json
+generate_result.json
+LES.md
