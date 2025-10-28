@@ -267,7 +267,24 @@ app.post("/api/suggest", async (req, res) => {
     if (respData) console.error(`[suggest] response:`, respData);
     if (e?.stack) console.error(`[suggest] stack:\n${e.stack}`);
     
-    // Client krijgt nette JSON response
+    // Specifieke foutafhandeling voor veelvoorkomende problemen
+    if (msg.includes("USER_BLOCKED_BY_ADMIN") || msg.includes("Authentication error")) {
+      return res.status(403).json({
+        error: "GCP toegang geweigerd",
+        hint: "Controleer: 1) Vertex AI API ingeschakeld in GCP Console, 2) Juiste project geselecteerd, 3) Account heeft Vertex AI toegang",
+        debug: { project: GCP_PROJECT_ID, region: GEMINI_VERTEX_LOCATION }
+      });
+    }
+    
+    if (msg.includes("PERMISSION_DENIED")) {
+      return res.status(403).json({
+        error: "Onvoldoende rechten voor Vertex AI",
+        hint: "Voeg 'Vertex AI User' rol toe aan je account in IAM & Admin",
+        debug: { project: GCP_PROJECT_ID }
+      });
+    }
+    
+    // Fallback voor andere fouten
     const status = /timeout/i.test(msg) ? 504 : 500;
     return res.status(status).json({
       error: "Internal error while suggesting",
