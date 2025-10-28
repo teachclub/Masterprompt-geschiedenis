@@ -1,131 +1,57 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Rooktest voor de masterprompt backend
-# Test de belangrijkste endpoints met dummy data
+BASE="${1:-http://localhost:8080}"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-set -e
+log() { printf "• %s\n" "$*"; }
+pass() { printf "✅ %s\n" "$*"; }
+fail() { printf "❌ %s\n" "$*"; exit 1; }
 
-BASE_URL="${BASE_URL:-http://localhost:8080}"
-TIMEOUT=10
+node_json_has() {
+  # usage: node_json_has '<json>' 'expr returning truthy' 'error message'
+  local json="$1" expr="$2" msg="$3"
+  node -e "const j=JSON.parse(process.argv[1]); if(!(${expr})) process.exit(1)" "$json" || fail "$msg"
+}
 
-echo "🧪 Rooktest voor masterprompt backend"
-echo "📍 Base URL: $BASE_URL"
-echo ""
+log "BASE = $BASE"
 
-# Test 1: Health check
-echo "1️⃣  Testing /health endpoint..."
-HEALTH_RESPONSE=$(curl -s -m $TIMEOUT -w "%{http_code}" -o /tmp/health_body.json "$BASE_URL/health")
-HTTP_CODE="${HEALTH_RESPONSE: -3}"
+# 1) /health ------------------------------------------------------------
+log "Check: GET /health"
+code=$(curl -sS -o "$TMP_DIR/health.json" -w "%{http_code}" "$BASE/health" || true)
+[ "$code" = "200" ] || fail "/health statuscode $code (verwacht 200)"
+json="$(cat "$TMP_DIR/health.json")"
+node_json_has "$json" "j.status==='ok'" "/health: status!='ok'"
+node_json_has "$json" "typeof j.uptime_sec==='number'" "/health: uptime_sec ontbreekt"
+node_json_has "$json" "j.model_region && j.runtime_region" "/health: regio-informatie ontbreekt"
+pass "/health ok"
 
-if [ "$HTTP_CODE" != "200" ]; then
-    echo "❌ Health check failed - HTTP $HTTP_CODE"
-    exit 1
-fi
+# 2) /api/suggest -------------------------------------------------------
+log "Check: POST /api/suggest (tv=6)"
+code=$(curl -sS -o "$TMP_DIR/suggest.json" -w "%{http_code}" \
+  -H 'Content-Type: application/json' \
+  -d '{"tv":6}' \
+  "$BASE/api/suggest" || true)
+[ "$code" = "200" ] || fail "/api/suggest statuscode $code (verwacht 200)"
+json="$(cat "$TMP_DIR/suggest.json")"
+node_json_has "$json" "Array.isArray(j.items)" "/api/suggest: items geen array"
+node_json_has "$json" "j.items.length===3" "/api/suggest: verwacht exact 3 items"
+pass "/api/suggest ok (3 items)"
 
-if ! grep -q '"status":"ok"' /tmp/health_body.json; then
-    echo "❌ Health check failed - missing status:ok"
-    cat /tmp/health_body.json
-    exit 1
-fi
+# 3) /api/generate ------------------------------------------------------
+log "Check: POST /api/generate (met gekozen kaart uit suggesties)"
+card="$(node -e 'const j=require(process.argv[1]); process.stdout.write(JSON.stringify(j.items[0]))' "$TMP_DIR/suggest.json")"
+payload="$(node -e 'const c=process.argv[1]; process.stdout.write(JSON.stringify({chosen_card: JSON.parse(c), options:{tv:6}}))' "$card")"
 
-echo "✅ Health check passed"
-echo ""
+code=$(curl -sS -o "$TMP_DIR/generate.json" -w "%{http_code}" \
+  -H 'Content-Type: application/json' \
+  -d "$payload" \
+  "$BASE/api/generate" || true)
+[ "$code" = "200" ] || fail "/api/generate statuscode $code (verwacht 200)"
+json="$(cat "$TMP_DIR/generate.json")"
+node_json_has "$json" "typeof j.markdown==='string' && j.markdown.length>100" "/api/generate: markdown ontbreekt of te kort"
+pass "/api/generate ok (markdown > 100 tekens)"
 
-# Test 2: Suggest endpoint
-echo "2️⃣  Testing /api/suggest endpoint..."
-SUGGEST_PAYLOAD='{"tv":6,"ka":26,"context":"Absolutisme in Frankrijk"}'
-
-SUGGEST_RESPONSE=$(curl -s -m $TIMEOUT -w "%{http_code}" \
-    -H "Content-Type: application/json" \
-    -d "$SUGGEST_PAYLOAD" \
-    -o /tmp/suggest_body.json \
-    "$BASE_URL/api/suggest")
-
-HTTP_CODE="${SUGGEST_RESPONSE: -3}"
-
-if [ "$HTTP_CODE" != "200" ]; then
-    echo "❌ Suggest failed - HTTP $HTTP_CODE"
-    cat /tmp/suggest_body.json
-    exit 1
-fi
-
-ITEM_COUNT=$(jq '.items | length' /tmp/suggest_body.json 2>/dev/null || echo "0")
-if [ "$ITEM_COUNT" != "3" ]; then
-    echo "❌ Suggest failed - expected 3 items, got $ITEM_COUNT"
-    cat /tmp/suggest_body.json
-    exit 1
-fi
-
-echo "✅ Suggest endpoint passed (3 items returned)"
-echo ""
-
-# Test 3: Generate endpoint
-echo "3️⃣  Testing /api/generate endpoint..."
-GENERATE_PAYLOAD='{
-    "chosen_card": {
-        "title": "Absolutisme van Lodewijk XIV",
-        "head_question": "Was Lodewijk XIV een slechte koning?",
-        "context": "Frankrijk in de 17e eeuw"
-    },
-    "options": {
-        "tv": 6,
-        "ka": 26,
-        "theme": "Absolutisme"
-    }
-}'
-
-GENERATE_RESPONSE=$(curl -s -m 30 -w "%{http_code}" \
-    -H "Content-Type: application/json" \
-    -d "$GENERATE_PAYLOAD" \
-    -o /tmp/generate_body.json \
-    "$BASE_URL/api/generate")
-
-HTTP_CODE="${GENERATE_RESPONSE: -3}"
-
-if [ "$HTTP_CODE" != "200" ]; then
-    echo "❌ Generate failed - HTTP $HTTP_CODE"
-    cat /tmp/generate_body.json
-    exit 1
-fi
-
-if ! jq -e '.markdown' /tmp/generate_body.json >/dev/null 2>&1; then
-    echo "❌ Generate failed - missing markdown field"
-    cat /tmp/generate_body.json
-    exit 1
-fi
-
-MARKDOWN_LENGTH=$(jq -r '.markdown | length' /tmp/generate_body.json)
-if [ "$MARKDOWN_LENGTH" -lt 100 ]; then
-    echo "❌ Generate failed - markdown too short ($MARKDOWN_LENGTH chars)"
-    exit 1
-fi
-
-echo "✅ Generate endpoint passed (markdown: $MARKDOWN_LENGTH chars)"
-echo ""
-
-# Test 4: Diag endpoint
-echo "4️⃣  Testing /diag endpoint..."
-DIAG_RESPONSE=$(curl -s -m $TIMEOUT -w "%{http_code}" -o /tmp/diag_body.json "$BASE_URL/diag")
-HTTP_CODE="${DIAG_RESPONSE: -3}"
-
-if [ "$HTTP_CODE" != "200" ]; then
-    echo "❌ Diag failed - HTTP $HTTP_CODE"
-    cat /tmp/diag_body.json
-    exit 1
-fi
-
-if ! jq -e '.ok' /tmp/diag_body.json >/dev/null 2>&1; then
-    echo "❌ Diag failed - missing ok field or not true"
-    cat /tmp/diag_body.json
-    exit 1
-fi
-
-MODEL_REGION=$(jq -r '.model_region // "unknown"' /tmp/diag_body.json)
-echo "✅ Diag endpoint passed (model region: $MODEL_REGION)"
-echo ""
-
-# Cleanup
-rm -f /tmp/health_body.json /tmp/suggest_body.json /tmp/generate_body.json /tmp/diag_body.json
-
-echo "🎉 Alle tests geslaagd!"
-echo "✨ Backend is operationeel"
+echo
+pass "Rooktest geslaagd op $BASE"
