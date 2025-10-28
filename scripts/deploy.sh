@@ -11,6 +11,9 @@ log() { printf "• %s\n" "$*"; }
 success() { printf "✅ %s\n" "$*"; }
 error() { printf "❌ %s\n" "$*"; exit 1; }
 
+# Maak deploy script uitvoerbaar
+chmod +x "$0"
+
 # Controleer of gcloud ingelogd is
 if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | head -n1 >/dev/null; then
   error "Niet ingelogd bij gcloud. Run: gcloud auth login"
