@@ -198,19 +198,48 @@ app.get("/api/tijdvakken", (_req, res) => {
   });
 });
 
-app.get("/diag", (_req, res) => {
-  res.json({
-    status: "diag",
-    project: process.env.GCP_PROJECT_ID || null,
-    model_region: process.env.GEMINI_VERTEX_LOCATION || null,
-    suggest_model: process.env.GEMINI_MODEL_SUGGEST || null,
-    generate_model: process.env.GEMINI_MODEL_GENERATE || null,
-    has_GOOGLE_APPLICATION_CREDENTIALS: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
-    adc_hint: "Run locally: gcloud auth application-default login",
-    runtime_region: process.env.X_GOOGLE_RUNTIME_REGION || process.env.GOOGLE_CLOUD_REGION || process.env.REGION || process.env.RUNTIME_REGION || "unknown"
-  });
+// Diagnose endpoint met Vertex "ping" test
+app.get("/diag", async (_req, res) => {
+  try {
+    // Minimale Vertex ping met suggest model
+    const model = vertex.getGenerativeModel({ model: GEMINI_MODEL_SUGGEST });
+    const resp = await model.generateContent({ 
+      contents: [{ role: "user", parts: [{ text: "ping" }] }] 
+    });
+    
+    // Succes: model werkt
+    res.json({
+      ok: true,
+      model_region: GEMINI_VERTEX_LOCATION,
+      runtime_region: RUNTIME_REGION || "unknown",
+      ping_response: takeTextFromResp(resp)?.slice(0, 100) || "empty"
+    });
+  } catch (e) {
+    // Zelfde uitgebreide logging als suggest
+    const name = e?.name || "Error";
+    const code = e?.code ?? e?.status ?? e?.statusCode ?? null;
+    const respStatus = e?.response?.status ?? e?.response?.statusCode ?? null;
+    const msg = e?.message || String(e);
+    
+    let respData = null;
+    try {
+      if (e?.response?.data) {
+        respData = JSON.stringify(e.response.data).slice(0, 500);
+      }
+    } catch (_) {}
+    
+    console.error(`[diag] name=${name} code=${code} respStatus=${respStatus} msg=${msg}`);
+    if (respData) console.error(`[diag] response:`, respData);
+    if (e?.stack) console.error(`[diag] stack:\n${e.stack}`);
+    
+    res.status(500).json({
+      error: "Vertex AI connection failed",
+      hint: "Check GCP_PROJECT_ID, GEMINI_VERTEX_LOCATION, ADC credentials, and server logs"
+    });
+  }
 });
 
+// Suggest endpoint met uitgebreide foutlogging
 app.post("/api/suggest", async (req, res) => {
   try {
     const { tv, ka, context } = req.body || {};
@@ -220,8 +249,24 @@ app.post("/api/suggest", async (req, res) => {
     const items = await generateSuggestions({ tv, ka, context });
     return res.json({ items });
   } catch (e) {
-    logModelError(e, "suggest");
-    const msg = e?.message || "";
+    // Uitgebreide foutlogging: name, code, respStatus, msg + response data + stack
+    const name = e?.name || "Error";
+    const code = e?.code ?? e?.status ?? e?.statusCode ?? null;
+    const respStatus = e?.response?.status ?? e?.response?.statusCode ?? null;
+    const msg = e?.message || String(e);
+    
+    let respData = null;
+    try {
+      if (e?.response?.data) {
+        respData = JSON.stringify(e.response.data).slice(0, 500);
+      }
+    } catch (_) {}
+    
+    console.error(`[suggest] name=${name} code=${code} respStatus=${respStatus} msg=${msg}`);
+    if (respData) console.error(`[suggest] response:`, respData);
+    if (e?.stack) console.error(`[suggest] stack:\n${e.stack}`);
+    
+    // Client krijgt nette JSON response
     const status = /timeout/i.test(msg) ? 504 : 500;
     return res.status(status).json({
       error: "Internal error while suggesting",
