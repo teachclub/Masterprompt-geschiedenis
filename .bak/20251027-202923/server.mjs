@@ -1,0 +1,350 @@
+import http from "http";
+import fs from "fs";
+import path from "path";
+import url from "url";
+import { fileURLToPath } from "url";
+
+// --- Config ---
+const HOST = process.env.HOST || "0.0.0.0";
+const PORT = Number(process.env.PORT) || 8080;
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || "";
+const GEMINI_MODEL_SUGGEST = process.env.GEMINI_MODEL_SUGGEST || "gemini-1.5-pro";   // stabieler voor JSON
+const GEMINI_MODEL_GENERATE = process.env.GEMINI_MODEL_GENERATE || "gemini-1.5-pro"; // kwaliteit
+const ON_VERTEX = !!(process.env.K_SERVICE || process.env.VERTEX_PROJECT);
+const VERTEX_PROJECT = process.env.VERTEX_PROJECT || "";
+const VERTEX_LOCATION = process.env.VERTEX_LOCATION || "";
+
+// __dirname shim
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// --- SLO (compact, genoeg voor testen; app kan eigen lijst tonen) ---
+const SLO = {
+  TV5: { label:"Tijdvak 5: Ontdekkers en hervormers (1500–1600)", kas:[{id:"21",name:"Reformatie en splitsing van de christelijke kerk"}]},
+  TV6: { label:"Tijdvak 6: Regenten en vorsten (1600–1700)", kas:[{id:"24",name:"Bijzondere plaats en bloei van de Republiek"}]}
+};
+
+// --- HTTP helpers ---
+function sendJson(res, code, obj){
+  res.writeHead(code, {
+    "Content-Type":"application/json",
+    "Access-Control-Allow-Origin":"*",
+    "Access-Control-Allow-Methods":"GET,POST,OPTIONS",
+    "Access-Control-Allow-Headers":"Content-Type"
+  });
+  res.end(JSON.stringify(obj));
+}
+function serveFile(res, filePath, contentType="text/html"){
+  fs.readFile(filePath, (err, data)=>{
+    if(err){ res.writeHead(404,{"Content-Type":"text/plain"}); res.end("Not found"); }
+    else { res.writeHead(200,{"Content-Type":contentType}); res.end(data); }
+  });
+}
+async function readJsonBodyStrict(req, res){
+  const ct=(req.headers["content-type"]||"").toLowerCase();
+  if(!ct.includes("application/json")){ sendJson(res,415,{error:"Unsupported Media Type (application/json verwacht)"}); return null; }
+  return new Promise(resolve=>{
+    let body=""; req.on("data",c=> body+=c);
+    req.on("end",()=>{ try{ resolve(JSON.parse(body||"{}")); }catch{ sendJson(res,400,{error:"Bad Request (ongeldige JSON)"}); resolve(null);} });
+  });
+}
+
+// --- AI helpers ---
+async function getVertexToken(){
+  const r = await fetch("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", {
+    headers: { "Metadata-Flavor":"Google" }
+  }).catch(()=>null);
+  if(!r || !r.ok) throw new Error("Geen Vertex token");
+  const j = await r.json();
+  if(!j.access_token) throw new Error("Leeg Vertex token");
+  return j.access_token;
+}
+
+async function geminiCall({ modelName, text, wantJson=false, maxRetries=3 }){
+  let endpoint, headers;
+  if(ON_VERTEX){
+    if(!VERTEX_PROJECT || !VERTEX_LOCATION) throw new Error("VERTEX_PROJECT/LOCATION ontbreken");
+    const token = await getVertexToken();
+    endpoint = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${modelName}:generateContent`;
+    headers = { "Authorization":`Bearer ${token}`, "Content-Type":"application/json" };
+  } else {
+    if(!GOOGLE_API_KEY) throw new Error("GOOGLE_API_KEY ontbreekt");
+    endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GOOGLE_API_KEY}`;
+    headers = { "Content-Type":"application/json" };
+  }
+
+  const body = {
+    contents: [{ role:"user", parts:[{ text }] }],
+    generationConfig: {
+      temperature: 0.4,
+      ...(wantJson ? { responseMimeType:"application/json" } : {})
+    }
+  };
+
+  let attempt=0, lastErr=null;
+  while(attempt < maxRetries){
+    attempt++;
+    const resp = await fetch(endpoint, { method:"POST", headers, body: JSON.stringify(body) }).catch(e=>({ ok:false, statusText:String(e) }));
+    if(resp && resp.ok){
+      const data = await resp.json();
+      const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      return txt;
+    }
+    // capture detail text if any
+    let detail="";
+    try{ detail = await resp.text(); }catch(_){}
+    lastErr = new Error(`Gemini HTTP ${resp?.status||"ERR"}: ${detail||resp?.statusText||"unknown"}`);
+    // retry on 429/503/500
+    const code = resp?.status||0;
+    if([429,500,503,408].includes(code)){
+      await new Promise(r=> setTimeout(r, 400 * attempt ** 2)); // backoff
+      continue;
+    }
+    break;
+  }
+  throw lastErr || new Error("Gemini-call faalde");
+}
+
+// Parse JSON with fences tolerant
+function tryParseJSON(raw){
+  const cleaned = String(raw).replace(/^\s*```json\s*/i,"").replace(/\s*```\s*$/i,"").trim();
+  try { return JSON.parse(cleaned); } catch { return null; }
+}
+
+// Fallback 3-cards generator (garanties naar de frontend)
+function fallbackCards(tv, ka){
+  const stamp = (i)=>`C${i}`;
+  const now = new Date().getTime();
+  const base = [
+    {
+      id: stamp(1), tv, ka,
+      title: "“Waarom dachten ze zo?” Reformatie door hun bril",
+      head_question: "Als aflaten zo ‘oneerlijk’ klinken, waarom kochten gewone mensen ze toch?",
+      context: "Wittenberg & Duitse vorstendommen, 1517–1521",
+      learning_summary: [
+        "Je legt uit waarom aflaten toen als zinnig konden voelen.",
+        "Je koppelt drukpers/vorstensteun aan snelle verspreiding.",
+        "Je onderbouwt met 1 broncitaat (≤15 woorden)."
+      ]
+    },
+    {
+      id: stamp(2), tv, ka,
+      title: "Handel of heiligheid? Motieven achter keuzes",
+      head_question: "Kozen vorsten voor Luther omdat het ‘eerlijk’ was, of omdat het handig was?",
+      context: "Rijksdag van Worms, 1521; prinselijke belangen",
+      learning_summary: [
+        "Je benoemt politieke en economische motieven.",
+        "Je vergelijkt ‘eerlijk’ (nu) met ‘ordelijk/voordelig’ (toen).",
+        "Je citeert 1 bewijs uit een contemporaine bron."
+      ]
+    },
+    {
+      id: stamp(3), tv, ka,
+      title: "Van oordeel naar onderzoek",
+      head_question: "Is ‘protest’ koppig gedoe, of past het in hun wereldbeeld toen?",
+      context: "Duitse steden & pamfletten, 1517–1525",
+      learning_summary: [
+        "Je herkent presentisme in je eigen oordeel.",
+        "Je reconstrueert het toenmalige geloofskader.",
+        "Je staaft met twee oorzaken en citaat."
+      ]
+    }
+  ];
+  return base;
+}
+
+// Suggest prompt (anti-presentisme + leerlingenoordeel)
+function buildSuggestPrompt(tv, tvLabel, ka, kaName){
+  const system = `Je bent een strikte onderwijsexpert geschiedenis (NL).
+Lever EXACT 3 JSON-kaarten onder key "suggestions".
+Elke kaart dwingt anti-presentisme af: hoofdvraag bevat een impliciet leerlinge-oordeel (bril van nu) in leerlingentaal.
+Formaat per kaart: {id,title,head_question,context,learning_summary[]}.`;
+  const user = `Tijdvak: ${tv} (${tvLabel})
+KA ${ka}: ${kaName}
+Eisen:
+- 3 kaarten met verschillende insteken (politiek/economisch/sociaal-cultureel).
+- head_question in leerlingentaal met een oordeel (bv. "Was dat niet gewoon... ?").
+- context = plaats + tijd, compact.
+`;
+  return { system, user };
+}
+
+// Les prompt (Tim Huijgen + volledige les)
+function buildLessonPrompt(sel, tvLabel, kaName, bouw, leerweg, opmerkingen){
+  const system = `Je schrijft een volledige les in het Nederlands in de stijl van Tim Huijgen ("Het Vreemde Verleden"), anti-presentistisch, als strak Markdown-document.`;
+  const user = `Maak een COMPLETE les met deze parameters:
+Titel: ${sel.title}
+Hoofdvraag (leerlingenoordeel): ${sel.head_question}
+Context: ${sel.context}
+Kader: Tijdvak ${sel.tv} (${tvLabel}) · KA ${sel.ka} (${kaName})
+Bouw/leerweg: ${bouw} · ${leerweg}
+Opmerkingen docent: ${opmerkingen||"-"}
+
+STRUCTUUR (verplicht, Markdown):
+1) KOPBLOK (samenvatting + parameters).
+2) DOCENTVERSIE
+   - Wat/hoe/waarom (3 bullets, anti-presentisme).
+   - Leerdoelen (5).
+   - Antwoordmodel: 3 vragen. Bij elk: exacte vraag + antwoord (~100 woorden) dat de vraag herhaalt en onderbouwt met max 2 mini-citaten (≤15 woorden).
+3) LEERLINGVERSIE
+   - Startopdracht (expliciet presentisme vermijden).
+   - Twee lege sjablonen:
+     a) Samenwerkingstabel (invul): kolommen: Bronnr | Wie spreekt? | Kerngevoel/overtuiging | Dimensie (ideologisch/sociaal-cultureel/economisch/politiek/emotioneel) | Twee oorzaken van steun of verzet (kort).
+     b) Positioneringskwadrant (2×2): assen X = Pragmatisch ↔ Principeel, Y = Exclusief/gedoogd ↔ Inclusief/gelijkwaardig. Instr: noteer per kwadrant 1–2 bronnummers + 1 zin motivatie.
+   - Reflectie: 2 vragen, elk met antwoord (~100 woorden) in leerlingentaal (vraag herhalen).
+4) BRONNEN (8 blokken, 75–100 woorden elk)
+   - Alleen herleidbare/realistische bronnen (geen pseudo).
+   - Per bron: 3 analysevragen (claim/doel; context; dimensie + citaat ≤15 woorden).
+   - Tip: gebruik Temple (1673), Voetius (midden 17e), Dordtse Synode (1618-19) waar passend.
+5) BRONNENLIJST (1-regelige referenties).
+
+Lever ALLES als één Markdown-tekst, geen extra praat eromheen.`;
+  return { system, user };
+}
+
+// --- Server ---
+const server = http.createServer(async (req,res)=>{
+  if(req.method==="OPTIONS") return sendJson(res,204,{});
+  const parsed = url.parse(req.url,true);
+  const pathname = parsed.pathname||"/";
+
+  if(pathname==="/health" && req.method==="GET"){
+    return sendJson(res,200,{
+      ok:true,
+      provider: ON_VERTEX ? "gemini-vertex" : "gemini-studio",
+      has_key: !!GOOGLE_API_KEY,
+      project: VERTEX_PROJECT||null,
+      location: VERTEX_LOCATION||null
+    });
+  }
+
+  if(pathname==="/api/tijdvakken" && req.method==="GET"){
+    const tijdvakken = Object.keys(SLO).map(id=>({ id, ...SLO[id] }));
+    return sendJson(res,200,{ ok:true, tijdvakken });
+  }
+
+  if(pathname==="/api/suggest" && req.method==="POST"){
+    try{
+      const body = await readJsonBodyStrict(req,res);
+      if(body===null) return;
+
+      const tv = String((body.tijdvak||body.tv||"TV5")).toUpperCase();
+      const ka = String(body.ka || "21");
+      const tvLabel = SLO[tv]?.label || tv;
+      const kaName  = (SLO[tv]?.kas||[]).find(x=>x.id===ka)?.name || `KA ${ka}`;
+
+      const { system, user } = buildSuggestPrompt(tv, tvLabel, ka, kaName);
+      const merged = `INSTRUCTIES (docentensetup):\n${system}\n\n${user}`;
+      let raw = await geminiCall({ modelName: GEMINI_MODEL_SUGGEST, text: merged, wantJson:true, maxRetries: 4 });
+
+      // Parse JSON
+      let out = tryParseJSON(raw) || {};
+      let cards = Array.isArray(out.suggestions) ? out.suggestions : [];
+      if(cards.length < 3){
+        // fallback
+        cards = fallbackCards(tv, ka);
+      }
+      // normaliseer
+      cards = cards.slice(0,3).map((c,i)=>({
+        id: c.id || `C${i+1}`,
+        tv, ka,
+        title: c.title || "Lesvoorstel",
+        head_question: c.head_question || "Klinkt dit niet gewoon…? (leerlingenoordeel uit de 21e eeuw)",
+        context: c.context || "",
+        learning_summary: Array.isArray(c.learning_summary) ? c.learning_summary.slice(0,3) : []
+      }));
+      return sendJson(res,200,{ suggestions: cards });
+    }catch(e){
+      return sendJson(res,500,{ error:String(e.message||e), suggestions: fallbackCards("TV5","21") });
+    }
+  }
+
+  if(pathname==="/api/generate" && req.method==="POST"){
+    try{
+      const b = await readJsonBodyStrict(req,res);
+      if(b===null) return;
+
+      const s = b.selectedSuggestion || {};
+      const bouw = b.bouw || "bovenbouw";
+      const leerweg = b.leerweg || "vwo";
+      const opmerkingen = b.opmerkingen || "";
+
+      if(!s || !s.tv || !s.ka) return sendJson(res,400,{ error:"Ongeldige suggestiekaart" });
+
+      const tvLabel = SLO[s.tv]?.label || s.tv;
+      const kaName  = (SLO[s.tv]?.kas||[]).find(x=>x.id===s.ka)?.name || `KA ${s.ka}`;
+
+      const { system, user } = buildLessonPrompt(s, tvLabel, kaName, bouw, leerweg, opmerkingen);
+      const merged = `INSTRUCTIES (docentensetup):\n${system}\n\n${user}`;
+
+      const md = await geminiCall({ modelName: GEMINI_MODEL_GENERATE, text: merged, wantJson:false, maxRetries: 4 });
+      if(!md || md.length < 500) throw new Error("Les is te kort of leeg");
+      return sendJson(res,200,{ markdown: md });
+    }catch(e){
+      return sendJson(res,500,{ error:`Fout bij lesgeneratie: ${e.message}` });
+    }
+  }
+
+  // static
+  const publicDir = path.join(__dirname,"public");
+  const fp = path.join(publicDir, pathname==="/" ? "index.html" : pathname.slice(1));
+  if(fp.startsWith(publicDir) && fs.existsSync(fp) && fs.statSync(fp).isFile()){
+    const ext = path.extname(fp).toLowerCase();
+    const map = { ".html":"text/html", ".js":"application/javascript", ".css":"text/css" };
+    return serveFile(res, fp, map[ext]||"text/plain");
+  }
+
+  sendJson(res,404,{error:"not_found"});
+});
+
+server.listen(PORT, HOST, ()=> {
+  console.log(`Server (${ON_VERTEX ? "Gemini-Vertex" : "Gemini-Studio"}) op http://${HOST}:${PORT}  (health: /health)`);
+});
+
+/* ===== Enhancers (Huijgen-intro + Keuzelijst oorzaken) ===== */
+function ensureHuijgenIntro(md) {
+  const hasIntro = /Het Vreemde Verleden|Huijgen/i.test(md);
+  if (hasIntro) return md;
+  const intro = `
+### Introductie: Het Vreemde Verleden (Tim Huijgen)
+We kijken **niet** met de bril van nu, maar proberen te begrijpen **waarom** mensen **toen** dachten en deden wat ze deden. Je oordeel stel je uit: eerst reconstrueren we motieven, belangen en context — pas daarna kom je terug op de hoofdvraag.
+`;
+  if (/^# /m.test(md)) return md.replace(/^# .*\n/, m => m + intro + "\n");
+  return intro + "\n" + md;
+}
+
+function injectCauses(md) {
+  const causesBlock = `
+### Keuzelijst oorzaken (optioneel)
+Kies waar passend; voeg eigen oorzaken toe als iets ontbreekt.
+
+- **Politiek-bestuurlijk:** orde/veiligheid, centralisatie, legitimiteit, oorlog/dreiging
+- **Economisch:** belastingen, handel/kapitaal, mercantilisme, rente/krediet, plundering/oorlogskosten
+- **Sociaal-cultureel:** status/adel, eer, hofcultuur, stedelijk vs. platteland, traditie
+- **Religie/ideeën:** goddelijk recht, ketterij, zuivere leer, prediking, geweten
+- **Ideologisch/propaganda:** reputatie vorst, symboliek (paleizen/rituelen), vijandbeelden
+- **Emotioneel/veiligheid:** honger/angst, wraak, trauma burgeroorlog, groepsdruk
+- **Extern:** buitenlandse inmenging, bondgenootschappen, handelsoorlogen, migratie
+`;
+  // liefst direct na Opdracht 1
+  if (/Samenwerkingstabel/i.test(md)) {
+    return md.replace(/(\n###\s*Opdracht\s*1[^\n]*\n)/i, "$1" + causesBlock + "\n");
+  }
+  // of direct na Startopdracht
+  if (/##\s*De absolute vorst:|##\s*Startopdracht/i.test(md)) {
+    return md.replace(/(##\s*Startopdracht[^\n]*\n)/i, "$1" + causesBlock + "\n");
+  }
+  // fallback: net vóór BRONNEN
+  return md.replace(/(\n#\s*BRONNEN|\n##\s*BRONNEN)/i, causesBlock + "$1");
+}
+
+function enhanceMarkdown(md) {
+  try {
+    let out = md;
+    out = ensureHuijgenIntro(out);
+    out = injectCauses(out);
+    return out;
+  } catch {
+    return md;
+  }
+}

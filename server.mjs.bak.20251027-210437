@@ -1,0 +1,84 @@
+import http from "http";
+import fs from "fs";
+import path from "path";
+import url from "url";
+import { fileURLToPath } from "url";
+import { OpenAI } from "openai"; // Gebruik de publieke OpenAI SDK
+
+// Nodige constanten
+const HOST = process.env.HOST || "0.0.0.0";
+const PORT = Number(process.env.PORT) || 8080;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || ""; 
+const MODEL = "gpt-4o-mini"; // Model
+const ALLOWED_ORIGIN = "https://prompt-to-lesson-ck1.web.app"; 
+
+// __dirname shim (ESM)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Initialiseer OpenAI Client
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+if (!openai) { console.error("❌ FOUT: OpenAI Client niet geïnitialiseerd."); }
+
+
+// --- SLO DATA ---
+const SLO = { /* ... SLO DATA ... */
+  TV1: { label:"Tijdvak 1: Jagers en boeren (tot 3000 v.Chr.)", kas:[{id:"1",name:"De levenswijze van jagers-verzamelaars"}]},
+  TV5: { label:"Tijdvak 5: Ontdekkers en hervormers (1500–1600)", kas:[{id:"21",name:"Reformatie en splitsing van de christelijke kerk"}]},
+  TV9: { label:"Tijdvak 9: De wereldoorlogen (1900–1950)", kas:[{id:"38",name:"Totalitaire ideologieën"}]}
+};
+
+// --- FUNCTIES ---
+function sendJson(res, code, obj) { 
+    res.writeHead(code, { "Content-Type": "application/json", "Access-Control-Allow-Origin": ALLOWED_ORIGIN, "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" });
+    res.end(JSON.stringify(obj));
+}
+async function readJsonBodyStrict(req,res){ /* ... */ }
+
+// Hulpfunctie om de volledige les te genereren met de AI (ASYNC)
+async function generateAIText({ system, user, wantJson=false }){
+  if (!openai) throw new Error("AI Client is niet geinitialiseerd.");
+  
+  const messages = [ { role: "system", content: system }, { role: "user", content: user } ];
+  
+  const response = await openai.chat.completions.create({
+    model: MODEL,
+    messages: messages,
+    temperature: 0.4,
+    response_format: wantJson ? { type: "json_object" } : undefined
+  });
+  
+  const text = response.choices?.[0]?.message?.content || "";
+  return text;
+}
+
+// Lesgeneratie logica (nu met OpenAI text functie)
+const generateLesson = async (suggestion, bouw, leerweg) => { 
+    if (!openai) return { error: "AI model niet beschikbaar voor lesgeneratie." };
+    const kaLabel = SLO[suggestion.tv]?.kas?.find(k => k.id === suggestion.ka)?.name || suggestion.ka || "Onbekend KA";
+
+    const prompt = ;
+
+    try {
+        const markdownLesson = await generateAIText({ system: "Genereer de les in perfecte, gestructureerde Markdown.", user: prompt });
+        if (!markdownLesson || markdownLesson.length < 500) throw new Error("AI genereerde te korte of geen les.");
+        return { markdownLesson };
+    } catch (error) {
+        return { error:  };
+    }
+};
+
+// --- HTTP SERVER LOGICA ---
+const server = http.createServer(async (req, res) => {
+    // ... (Handlers voor CORS, Health, Tijdvakken, Suggest & Generate, aangepast voor OpenAI) ...
+    // De rest van de server logica is nu hier
+    
+    // We gebruiken de correcte handlers uit de eerdere code
+
+    // ... (Dit is de placeholder code om de server te starten) ...
+    return sendJson(res, 200, { ok: true, message: "Placeholder" });
+});
+
+server.listen(PORT, HOST, () => {
+    console.log();
+});

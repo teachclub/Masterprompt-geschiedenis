@@ -1,0 +1,99 @@
+import fs from "fs";
+
+const file = "server.mjs";
+if (!fs.existsSync(file)) {
+  console.error("❌ server.mjs niet gevonden.");
+  process.exit(1);
+}
+
+let src = fs.readFileSync(file, "utf8");
+let changed = false;
+
+/** 1) Voeg enhancers toe als ze ontbreken */
+if (!/function\s+enhanceMarkdown\s*\(/.test(src)) {
+  const enhancers = `
+
+// === Markdown Enhancers (Huijgen-intro, oorzaken, leerlingenoordeel) ===
+function ensureHuijgenIntro(md){
+  if (/Het Vreemde Verleden/i.test(md)) return md;
+  const intro = \`
+### Introductie: Het Vreemde Verleden
+We kijken vandaag bewust door de **bril van toen**. In plaats van direct te oordelen met onze normen,
+vragen we ons af: *wat leek mensen toen redelijk of noodzakelijk?* Dat helpt om presentisme te voorkomen
+en beter te begrijpen **waarom** tijdgenoten keuzes maakten die ons nu “vreemd” lijken.\n\`;
+  // Injecteer bij KOPBLOK/DOCENTVERSIE, anders laat staan
+  return md.replace(/(#\\s*KOPBLOK|\\*\\*\\*|\\n#\\s*DOCENTVERSIE)/i, intro + "\n$1");
+}
+
+function injectCauses(md){
+  const causes = [
+    "Orde/veiligheid na oorlog/chaos",
+    "Goddelijk recht/kerkelijke legitimatie",
+    "Centralisatie en efficiënt bestuur",
+    "Staand leger en belastingbasis",
+    "Mercantilisme/handel/werkgelegenheid",
+    "Prestige/propaganda/hofcultuur",
+    "Drukpers/verspreiding van ideeën",
+    "Vorstelijke patronage/adelcontrole",
+    "Lokale privileges vs. centrale macht",
+    "Angst, groepsdruk, loyaliteit"
+  ];
+  const block = "\\n> **Keuzelijst oorzaken (optioneel)**\\n> " + causes.map(c=>"- "+c).join("\\n> ") + "\\n";
+
+  if (/##\\s*Startopdracht/i.test(md)) {
+    return md.replace(/(##\\s*Startopdracht[^\\n]*\\n)/i, "$1" + block + "\\n");
+  }
+  return md.replace(/(\\n#\\s*BRONNEN|\\n##\\s*BRONNEN)/i, block + "$1");
+}
+
+function enforceLearnerHead(md){
+  // Zoek de hoofdrij in KOPBLOK-tabel
+  const re = /(\\|\\s*\\*\\*Hoofdvraag\\*\\*\\s*\\|\\s*)(.+?)(\\s*\\|)/mi;
+  if (!re.test(md)) return md;
+  return md.replace(re, (m,a,q,z)=>{
+    const tip = " (Leerlingenoordeel: kijk met jouw bril van nu — past dat in hún tijd?)";
+    return a + (q.includes("Leerlingenoordeel") ? q : (q + tip)) + z;
+  });
+}
+
+function enhanceMarkdown(md){
+  try{
+    // strip eventueel ```markdown fences
+    let out = md.replace(/^\\s*```(?:markdown)?\\s*/i,"").replace(/\\s*```\\s*$/i,"").trim();
+    out = ensureHuijgenIntro(out);
+    out = injectCauses(out);
+    out = enforceLearnerHead(out);
+    return out;
+  }catch{ return md; }
+}
+`;
+  src += enhancers;
+  changed = true;
+}
+
+/** 2) Wrap de eerste JSON-respons die { markdown: ... } teruggeeft met enhanceMarkdown(...)  */
+if (!/markdown:\s*enhanceMarkdown\(/.test(src) && /{[^}]*markdown\s*:/.test(src)) {
+  // Vervang alléén de EERSTE keer '{ markdown:' door '{ markdown: enhanceMarkdown('
+  const firstIdx = src.indexOf("{ markdown:");
+  if (firstIdx >= 0) {
+    const before = src.slice(0, firstIdx);
+    const after = src.slice(firstIdx + "{ markdown:".length);
+    let tmp = before + "{ markdown: enhanceMarkdown(" + after;
+
+    // Zoek de eerstvolgende '});' NA dit punt en maak daar ')});' van (sluit de extra '(' )
+    const closeIdx = tmp.indexOf("});", firstIdx + 1);
+    if (closeIdx >= 0) {
+      tmp = tmp.slice(0, closeIdx) + ")});" + tmp.slice(closeIdx + 3);
+      src = tmp;
+      changed = true;
+    }
+  }
+}
+
+if (!changed) {
+  console.log("ℹ️ Geen wijzigingen nodig (enhancers al aanwezig?).");
+  process.exit(0);
+}
+
+fs.writeFileSync(file, src, "utf8");
+console.log("✅ server.mjs gepatcht (enhancers + markdown wrapping). Back-up staat in:", process.env.BK || "");
