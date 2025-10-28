@@ -186,6 +186,212 @@ app.get("/health", (_req, res) => {
   });
 });
 
+/* ──────────────────────────────────────────────────────────────────────────────
+   MASTERPROMPT – Suggest & Generate endpoints (v3.1)
+   Vereist env: GCP_PROJECT_ID, GEMINI_VERTEX_LOCATION,
+               GEMINI_MODEL_SUGGEST, GEMINI_MODEL_GENERATE
+   ────────────────────────────────────────────────────────────────────────────── */
+
+async function ensureModels() {
+  const { VertexAI } = await import("@google-cloud/vertexai");
+  const project = process.env.GCP_PROJECT_ID || GCP_PROJECT_ID || "unknown";
+  const location = process.env.GEMINI_VERTEX_LOCATION || GEMINI_VERTEX_LOCATION || "europe-west1";
+  const modelSuggest = process.env.GEMINI_MODEL_SUGGEST || (typeof GEMINI_MODEL_SUGGEST !== "undefined" ? GEMINI_MODEL_SUGGEST : "gemini-1.5-flash");
+  const modelGenerate = process.env.GEMINI_MODEL_GENERATE || (typeof GEMINI_MODEL_GENERATE !== "undefined" ? GEMINI_MODEL_GENERATE : "gemini-1.5-pro");
+
+  if (!project || project === "unknown") {
+    throw new Error("GCP project ontbreekt. Zet GCP_PROJECT_ID in .env en run gcloud auth application-default login");
+  }
+
+  const vertex = new VertexAI({ project, location });
+  return {
+    suggest: vertex.getGenerativeModel({ model: modelSuggest }),
+    generate: vertex.getGenerativeModel({ model: modelGenerate }),
+    meta: { project, location, modelSuggest, modelGenerate }
+  };
+}
+
+function stripFences(s) {
+  if (!s) return s;
+  // verwijder ```...``` blokken en overbodige whitespace
+  return s.replace(/```[a-zA-Z]*\s*([\s\S]*?)```/g, "$1").trim();
+}
+
+function buildSuggestPrompt({ ka, tijdvak, context, verplicht, extra }) {
+  // v3.1 – fase 1: exact 5 voorstellen, JSON-output
+  return `
+Je bent een historisch didacticus. Lever fase 1 output voor MASTER-PROMPT v3.1.
+
+Doelgroep: VO 3–5 havo/vwo.
+Antipresentisme (Tim Huijgen): leerlingen onderzoeken keuzes in de context van toen.
+
+INPUT
+- KENMERKEND_ASPECT of TIJDVAK: ${ka || tijdvak || ""}
+- CONTEXT (optioneel): ${context || "(geen)"}
+- VERPLICHTE BRONNEN/COLLECTIES (optioneel): ${verplicht || "(geen)"}
+- EXTRA WENSEN (optioneel): ${extra || "(geen)"}
+
+TAKEN (fase 1):
+Geef **exact 5 voorstellen**. Elk voorstel heeft:
+- title
+- mini_rationale (2–3 zinnen over anti-presentisme en didactische waarde)
+- core_collections (2–4 echte, bestaande collecties/archieven)
+- dimensions (mogelijk relevante dimensies/invalshoeken voor debat)
+- reasoning_hook (kort, prikkelende invalshoek/vraag)
+
+FORMAT:
+Output **uitsluitend** als geldige JSON, zonder extra tekst of uitleg:
+
+{
+  "suggestions": [
+    {
+      "title": "...",
+      "mini_rationale": "...",
+      "core_collections": ["...", "..."],
+      "dimensions": ["economisch", "sociaal-cultureel", "politiek", "ideologisch"],
+      "reasoning_hook": "..."
+    },
+    ...
+  ]
+}
+
+Regels:
+- Geen presentistische oordelen.
+- Alleen bestaande collecties noemen (bv. Stadsarchief Amsterdam, NIOD, Arolsen, British Library Newspapers, Nationaal Archief, USC Shoah Foundation).
+- Variatie in invalshoek.
+`.trim();
+}
+
+function buildGeneratePrompt({ keuze, ka, tijdvak, context, verplicht, extra }) {
+  // v3.1 – fase 2: één complete les, Canvas-klare Markdown
+  return `
+Je bent een historisch didacticus. Lever fase 2 output voor MASTER-PROMPT v3.1.
+
+LEERKRACHT-AANPAK
+- Anti-presentisme (Tim Huijgen): leerlingen contextualiseren het verleden zelf.
+- Doelgroep: VO 3–5 havo/vwo (leerlingteksten B1–B2; docent C1).
+- Lesduur: 50 min (richtlijn).
+- Echte, verifieerbare bronnen (primair waar mogelijk). Geen fictie.
+
+INPUT
+- Gekozen voorstel (titel): ${keuze || "(ontbreekt)"}
+- KENMERKEND_ASPECT of TIJDVAK: ${ka || tijdvak || ""}
+- CONTEXT (optioneel): ${context || "(geen)"}
+- VERPLICHTE BRONNEN/COLLECTIES (optioneel): ${verplicht || "(geen)"}
+- EXTRA WENSEN (optioneel): ${extra || "(geen)"}
+
+HARDERE EISEN VOOR DE LES
+- **Exacte structuur** en **puur Markdown** (geen code fences).
+- H1-kop (les-titel).
+- **Docentversie** met WAT–HOE–WAAROM; leerdoelen; **antwoordmodel** (min. 3 vragen; antwoorden herhalen de vraag).
+- **Leerlingversie**: startopdracht (anti-presentisme, activeert "bril van toen"); **2×2-positioneerkwadrant** (labels expliciet en op dit thema toegesneden); **reflectie** (min. 2 vragen; antwoorden herhalen de vraag).
+- **Bronnen**: **8 echte bronnen** (75–100 woorden per bron); bij elke bron **3 analysevragen**; **antwoorden herhalen de vraag**.
+- **Fences strippen & schoon Markdown**: géén \`\`\`, géén overbodige preambles.
+- Waar passend: meerderheid **primaire** bronnen (dagboek/brief/toespraak/krant; persoon aan het woord). Varieer in perspectief.
+
+FORMAT – uitsluitend Canvas-klare Markdown, geen extra commentaar. 
+`.trim();
+}
+
+async function callGeminiJSON(model, prompt) {
+  const result = await model.generateContent({
+    contents: [{ role: "user", parts: [{ text: prompt }]}],
+    generationConfig: { responseMimeType: "application/json" }
+  });
+  const txt = result.response.text();
+  try {
+    return JSON.parse(txt);
+  } catch {
+    // poging: JSON eruit vissen
+    const m = txt.match(/\{[\s\S]*\}$/);
+    return m ? JSON.parse(m[0]) : { suggestions: [] };
+  }
+}
+
+async function callGeminiText(model, prompt) {
+  const result = await model.generateContent({
+    contents: [{ role: "user", parts: [{ text: prompt }]}]
+  });
+  return result.response.text();
+}
+
+function ensureJsonArray(x) {
+  if (!x) return [];
+  if (Array.isArray(x)) return x;
+  if (typeof x === "object" && Array.isArray(x.suggestions)) return x.suggestions;
+  return [];
+}
+
+/* ─── POST /api/suggest ─────────────────────────────────────────────────────── */
+app.post("/api/suggest", express.json(), async (req, res) => {
+  try {
+    const payload = {
+      ka: req.body?.ka || null,
+      tijdvak: req.body?.tijdvak || null,
+      context: req.body?.context || null,
+      verplicht: req.body?.verplichteBronnen || req.body?.verplicht || null,
+      extra: req.body?.extra || null
+    };
+    if (!payload.ka && !payload.tijdvak) {
+      return res.status(400).json({ error: "Geef {ka} OF {tijdvak} mee." });
+    }
+
+    const { suggest, meta } = await ensureModels();
+    const prompt = buildSuggestPrompt(payload);
+    const json = await callGeminiJSON(suggest, prompt);
+    const suggestions = ensureJsonArray(json);
+
+    return res.json({
+      status: "ok",
+      project: meta.project,
+      model: meta.modelSuggest,
+      count: suggestions.length,
+      suggestions
+    });
+  } catch (err) {
+    console.error("suggest error:", err);
+    return res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
+/* ─── POST /api/generate ────────────────────────────────────────────────────── */
+app.post("/api/generate", express.json(), async (req, res) => {
+  try {
+    const payload = {
+      keuze: req.body?.keuze || req.body?.title || null,
+      ka: req.body?.ka || null,
+      tijdvak: req.body?.tijdvak || null,
+      context: req.body?.context || null,
+      verplicht: req.body?.verplichteBronnen || req.body?.verplicht || null,
+      extra: req.body?.extra || null
+    };
+    if (!payload.keuze) {
+      return res.status(400).json({ error: "Ontbreekt: {keuze} (titel van gekozen voorstel)." });
+    }
+
+    const { generate, meta } = await ensureModels();
+    const prompt = buildGeneratePrompt(payload);
+    const raw = await callGeminiText(generate, prompt);
+
+    // lichte opschoning
+    let md = stripFences(raw);
+    if (!/^#\s/m.test(md)) {
+      // zorg dat er een H1 boven staat
+      md = `# ${payload.keuze}\n\n` + md;
+    }
+
+    return res.json({
+      status: "ok",
+      project: meta.project,
+      model: meta.modelGenerate,
+      markdown: md
+    });
+  } catch (err) {
+    console.error("generate error:", err);
+    return res.status(500).json({ error: String(err?.message || err) });
+  }
+});
+
 app.get("/api/tijdvakken", (_req, res) => {
   res.json({
     items: [
@@ -240,93 +446,6 @@ app.get("/diag", async (_req, res) => {
   }
 });
 
-// Suggest endpoint met uitgebreide foutlogging
-app.post("/api/suggest", async (req, res) => {
-  try {
-    const { tv, ka, context } = req.body || {};
-    if (!tv && !ka) {
-      return res.status(400).json({ error: "Missing tv or ka", hint: "Provide at least one of tv or ka" });
-    }
-    const items = await generateSuggestions({ tv, ka, context });
-    return res.json({ items });
-  } catch (e) {
-    // Uitgebreide foutlogging: name, code, respStatus, msg + response data + stack
-    const name = e?.name || "Error";
-    const code = e?.code ?? e?.status ?? e?.statusCode ?? null;
-    const respStatus = e?.response?.status ?? e?.response?.statusCode ?? null;
-    const msg = e?.message || String(e);
-    
-    let respData = null;
-    try {
-      if (e?.response?.data) {
-        respData = JSON.stringify(e.response.data).slice(0, 500);
-      }
-    } catch (_) {}
-    
-    console.error(`[suggest] name=${name} code=${code} respStatus=${respStatus} msg=${msg}`);
-    if (respData) console.error(`[suggest] response:`, respData);
-    if (e?.stack) console.error(`[suggest] stack:\n${e.stack}`);
-    
-    // Specifieke foutafhandeling voor veelvoorkomende problemen
-    if (msg.includes("USER_BLOCKED_BY_ADMIN") || msg.includes("Authentication error")) {
-      return res.status(403).json({
-        error: "GCP toegang geweigerd",
-        hint: "Controleer: 1) Vertex AI API ingeschakeld in GCP Console, 2) Juiste project geselecteerd, 3) Account heeft Vertex AI toegang",
-        debug: { project: GCP_PROJECT_ID, region: GEMINI_VERTEX_LOCATION }
-      });
-    }
-    
-    if (msg.includes("PERMISSION_DENIED")) {
-      return res.status(403).json({
-        error: "Onvoldoende rechten voor Vertex AI",
-        hint: "Voeg 'Vertex AI User' rol toe aan je account in IAM & Admin",
-        debug: { project: GCP_PROJECT_ID }
-      });
-    }
-    
-    // Fallback voor andere fouten
-    const status = /timeout/i.test(msg) ? 504 : 500;
-    return res.status(status).json({
-      error: "Internal error while suggesting",
-      hint: "Check Vertex credentials (ADC), project/region/model env vars, and server logs"
-    });
-  }
-});
-
-/**
- * POST /api/generate
- * NL-Uitleg:
- * 1) Valideer invoer: we verwachten een gekozen "kaart" met minstens title + head_question.
- * 2) Vraag het model om een ruwe les (Markdown, zonder fences) volgens de didactische eisen.
- * 3) Post-processen met enhanceMarkdown:
- *    - H1 garanderen
- *    - Anti-presentisme intro injecteren (Het Vreemde Verleden)
- *    - Keuzelijst oorzaken boven samenwerkings-/kwadrantsectie
- *    - Fences weghalen en opschonen voor Canvas
- * 4) Retourneer JSON { markdown } met de definitieve schone tekst.
- */
-app.post("/api/generate", async (req, res) => {
-  try {
-    const { chosen_card, options } = req.body || {};
-    if (!chosen_card?.title || !chosen_card?.head_question) {
-      return res.status(400).json({ error: "Missing chosen_card.title or chosen_card.head_question" });
-    }
-    const raw = await generateLesson({ chosen_card, options });
-    if (!raw || typeof raw !== "string") {
-      return res.status(500).json({ error: "Model returned empty content" });
-    }
-    const markdown = enhanceMarkdown(raw, {
-      headQuestion: chosen_card.head_question,
-      tv: options?.tv,
-      ka: options?.ka,
-      theme: options?.theme
-    });
-    res.json({ markdown });
-  } catch (e) {
-    console.error("generate error:", e);
-    res.status(500).json({ error: "Internal error while generating" });
-  }
-});
 
 // Global error formatter
 app.use((err, _req, res, _next) => {
