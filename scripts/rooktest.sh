@@ -103,8 +103,29 @@ fi
 echo "✅ Generate endpoint passed (markdown: $MARKDOWN_LENGTH chars)"
 echo ""
 
+# Test 4: Diag endpoint
+echo "4️⃣  Testing /diag endpoint..."
+DIAG_RESPONSE=$(curl -s -m $TIMEOUT -w "%{http_code}" -o /tmp/diag_body.json "$BASE_URL/diag")
+HTTP_CODE="${DIAG_RESPONSE: -3}"
+
+if [ "$HTTP_CODE" != "200" ]; then
+    echo "❌ Diag failed - HTTP $HTTP_CODE"
+    cat /tmp/diag_body.json
+    exit 1
+fi
+
+if ! jq -e '.ok' /tmp/diag_body.json >/dev/null 2>&1; then
+    echo "❌ Diag failed - missing ok field or not true"
+    cat /tmp/diag_body.json
+    exit 1
+fi
+
+MODEL_REGION=$(jq -r '.model_region // "unknown"' /tmp/diag_body.json)
+echo "✅ Diag endpoint passed (model region: $MODEL_REGION)"
+echo ""
+
 # Cleanup
-rm -f /tmp/health_body.json /tmp/suggest_body.json /tmp/generate_body.json
+rm -f /tmp/health_body.json /tmp/suggest_body.json /tmp/generate_body.json /tmp/diag_body.json
 
 echo "🎉 Alle tests geslaagd!"
 echo "✨ Backend is operationeel"
