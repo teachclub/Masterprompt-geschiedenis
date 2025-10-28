@@ -594,7 +594,10 @@ app.use((err, _req, res, _next) => {
   if (err?.message === "Origin not allowed") return res.status(403).json({ error: "CORS: origin not allowed" });
   res.status(500).json({ error: "Unexpected server error" });
 });
-app.get('/diag', (_req, res) => res.json({ ok: true }));
+app.get('/diag', (_req, res) => {
+  res.json({ ok: true, mode: "mock" });
+});
+
 
 // ──────────────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
