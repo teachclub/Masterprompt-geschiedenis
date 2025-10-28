@@ -44,7 +44,7 @@ app.use(express.json({ limit: "2mb" }));
 // Vertex AI client (EU)
 // ──────────────────────────────────────────────────────────────────────────────
 const vertex = new VertexAI({
-  project: GCP_PROJECT_ID,
+  project: process.env.GCP_PROJECT_ID,
   location: GEMINI_VERTEX_LOCATION
 });
 
