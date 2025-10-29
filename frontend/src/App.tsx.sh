@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+cat > /workspaces/Masterprompt-geschiedenis/frontend/src/App.tsx <<'EOF'
+import React, { useEffect, useState } from 'react';
 import { getInleiding, getTijdvakken, postSuggest, postGenerate } from './api';
 import './index.css';
 
@@ -10,7 +11,7 @@ const DIMENSIES = [
   { key: 'ide', label: 'Ideologisch' }
 ];
 
-export default function App() {
+export default function App(): JSX.Element {
   const [inleiding, setInleiding] = useState<string>('');
   const [tijdvakken, setTijdvakken] = useState<string[]>([]);
   const [type, setType] = useState<'KA' | 'TV'>('KA');
@@ -160,3 +161,4 @@ export default function App() {
     </div>
   );
 }
+EOF

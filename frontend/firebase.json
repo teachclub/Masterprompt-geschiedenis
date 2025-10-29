@@ -1,0 +1,8 @@
+{
+  "hosting": [{
+    "site": "lunar-prism-476521-t5",
+    "public": "dist",
+    "ignore": ["firebase.json","**/.*","**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+  }]
+}
